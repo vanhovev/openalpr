@@ -1,0 +1,103 @@
+{
+    "version": 2,
+    "data_type": "alpr_results",
+    "epoch_time": 1716288663492,
+    "img_width": 640,
+    "img_height": 480,
+    "processing_time_ms": 76.897591,
+    "regions_of_interest": [
+        {
+            "x": 0,
+            "y": 0,
+            "width": 640,
+            "height": 480
+        }
+    ],
+    "results": [
+        {
+            "plate": "VW223",
+            "confidence": 85.905449,
+            "matches_template": 0,
+            "plate_index": 0,
+            "region": "fr",
+            "region_confidence": 0,
+            "processing_time_ms": 22.180172,
+            "requested_topn": 10,
+            "coordinates": [
+                {
+                    "x": 285,
+                    "y": 156
+                },
+                {
+                    "x": 357,
+                    "y": 159
+                },
+                {
+                    "x": 357,
+                    "y": 174
+                },
+                {
+                    "x": 285,
+                    "y": 171
+                }
+            ],
+            "candidates": [
+                {
+                    "plate": "VW223",
+                    "confidence": 85.905449,
+                    "matches_template": 0
+                },
+                {
+                    "plate": "VH223",
+                    "confidence": 81.304543,
+                    "matches_template": 0
+                },
+                {
+                    "plate": "YW223",
+                    "confidence": 75.560875,
+                    "matches_template": 0
+                },
+                {
+                    "plate": "YH223",
+                    "confidence": 70.959984,
+                    "matches_template": 0
+                },
+                {
+                    "plate": "VW22S",
+                    "confidence": 69.064484,
+                    "matches_template": 0
+                },
+                {
+                    "plate": "VW2Z3",
+                    "confidence": 67.113960,
+                    "matches_template": 0
+                },
+                {
+                    "plate": "VH22S",
+                    "confidence": 64.463585,
+                    "matches_template": 0
+                },
+                {
+                    "plate": "VWZ23",
+                    "confidence": 63.200623,
+                    "matches_template": 0
+                },
+                {
+                    "plate": "VH2Z3",
+                    "confidence": 62.513058,
+                    "matches_template": 0
+                },
+                {
+                    "plate": "YW22S",
+                    "confidence": 58.719913,
+                    "matches_template": 0
+                }
+            ]
+        }
+    ],
+    "uuid": "openalpr-cam1-1716288663569",
+    "camera_id": 1,
+    "site_id": "openalpr",
+    "img_width": 640,
+    "img_height": 480
+}
