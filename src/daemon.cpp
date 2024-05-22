@@ -28,7 +28,6 @@
 #include <unordered_map>
 
 #define PORT 8080
-#define MAX_PLATES 5
 
 using namespace alpr;
 
@@ -37,8 +36,11 @@ SafeQueue<cv::Mat> framesQueue;
 
 // Prototypes
 void streamRecognitionThread(void *arg);
+
 bool writeToQueue(std::string jsonResult);
+
 bool uploadPost(CURL *curl, std::string url, std::string data);
+
 void dataUploadThread(void *arg);
 
 // Constants
@@ -54,40 +56,37 @@ const std::string BEANSTALK_TUBE_NAME = "alprd";
 std::string message = "START";
 std::unordered_map<std::string, int> tableau;
 
-struct CaptureThreadData
-{
-  std::string company_id;
-  std::string stream_url;
-  std::string site_id;
-  int camera_id;
-  int analysis_threads;
+struct CaptureThreadData {
+    std::string company_id;
+    std::string stream_url;
+    std::string site_id;
+    int camera_id;
+    int analysis_threads;
 
-  bool clock_on;
+    bool clock_on;
 
-  std::string config_file;
-  std::string country_code;
-  std::string pattern;
-  bool output_images;
-  std::string output_image_folder;
-  int top_n;
+    std::string config_file;
+    std::string country_code;
+    std::string pattern;
+    bool output_images;
+    std::string output_image_folder;
+    int top_n;
 };
 
-struct UploadThreadData
-{
-  std::string upload_url;
+struct UploadThreadData {
+    std::string upload_url;
 };
 
-void segfault_handler(int sig)
-{
-  void *array[10];
-  size_t size;
+void segfault_handler(int sig) {
+    void *array[10];
+    size_t size;
 
-  // get void*'s for all entries on the stack
-  size = backtrace(array, 10);
+    // get void*'s for all entries on the stack
+    size = backtrace(array, 10);
 
-  // print out all the frames to stderr
-  backtrace_symbols_fd(array, size, STDERR_FILENO);
-  exit(1);
+    // print out all the frames to stderr
+    backtrace_symbols_fd(array, size, STDERR_FILENO);
+    exit(1);
 }
 
 bool daemon_active;
@@ -97,543 +96,461 @@ static log4cplus::Logger logger;
 int server_fd = -1;
 int new_socket = -1;
 
-void init_server_socket()
-{
-  struct sockaddr_in address;
-  int opt = 1;
+void init_server_socket() {
+    struct sockaddr_in address;
+    int opt = 1;
 
-  if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) == 0)
-  {
-    perror("socket failed");
-    exit(EXIT_FAILURE);
-  }
+    if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) == 0) {
+        perror("socket failed");
+        exit(EXIT_FAILURE);
+    }
 
-  if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, &opt, sizeof(opt)))
-  {
-    perror("setsockopt");
-    exit(EXIT_FAILURE);
-  }
+    if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, &opt, sizeof(opt))) {
+        perror("setsockopt");
+        exit(EXIT_FAILURE);
+    }
 
-  address.sin_family = AF_INET;
-  address.sin_addr.s_addr = INADDR_ANY;
-  address.sin_port = htons(PORT);
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = INADDR_ANY;
+    address.sin_port = htons(PORT);
 
-  if (bind(server_fd, (struct sockaddr *)&address, sizeof(address)) < 0)
-  {
-    perror("bind failed");
-    exit(EXIT_FAILURE);
-  }
+    if (bind(server_fd, (struct sockaddr *) &address, sizeof(address)) < 0) {
+        perror("bind failed");
+        exit(EXIT_FAILURE);
+    }
 
-  if (listen(server_fd, 3) < 0)
-  {
-    perror("listen");
-    exit(EXIT_FAILURE);
-  }
+    if (listen(server_fd, 3) < 0) {
+        perror("listen");
+        exit(EXIT_FAILURE);
+    }
 }
 
-void send_message_to_socket(const char *message)
-{
-  struct sockaddr_in address;
-  int addrlen = sizeof(address);
+void send_message_to_socket(const char *message) {
+    struct sockaddr_in address;
+    int addrlen = sizeof(address);
 
-  if (server_fd == -1)
-  {
-    init_server_socket();
-  }
-
-  if (new_socket == -1)
-  {
-    if ((new_socket = accept(server_fd, (struct sockaddr *)&address, (socklen_t *)&addrlen)) < 0)
-    {
-      perror("accept");
-      exit(EXIT_FAILURE);
+    if (server_fd == -1) {
+        init_server_socket();
     }
-  }
 
-  ssize_t sent = send(new_socket, message, strlen(message), 0);
-  if (sent == -1)
-  {
-    perror("send failed");
-  }
+    if (new_socket == -1) {
+        if ((new_socket = accept(server_fd, (struct sockaddr *) &address, (socklen_t * ) & addrlen)) < 0) {
+            perror("accept");
+            exit(EXIT_FAILURE);
+        }
+    }
+
+    ssize_t sent = send(new_socket, message, strlen(message), 0);
+    if (sent == -1) {
+        perror("send failed");
+    }
 }
 
-void gererEntree(std::unordered_map<std::string, int> &tableau, const std::string &entree)
-{
-  // Vérifier si l'entrée existe déjà dans le tableau
-  if (tableau.find(entree) != tableau.end())
-  {
-    // Si oui, incrémenter l'index
-    tableau[entree]++;
-  }
-  else
-  {
-    // Sinon, ajouter l'entrée avec un index de 1
-    tableau[entree] = 1;
-  }
-
-  // Si le tableau contient 10 entrées uniques, trouver la valeur avec l'index le plus élevé
-  if (tableau.size() == 10)
-  {
-    std::string valeurMax;
-    int indexMax = 0;
-
-    // Parcourir le tableau pour trouver la valeur avec l'index le plus élevé
-    for (const auto &pair : tableau)
-    {
-      if (pair.second > indexMax)
-      {
-        indexMax = pair.second;
-        valeurMax = pair.first;
-      }
+void processEntry(std::unordered_map<std::string, int> &tableau, const std::string &entree) {
+    if (tableau.find(entree) != tableau.end()) {
+        tableau[entree]++;
+    } else {
+        tableau[entree] = 1;
     }
 
-    // Vider le tableau
-    tableau.clear();
+    if (tableau.size() == 10) {
+        std::string valeurMax;
+        int indexMax = 0;
 
-    std::string verification_result;
-    std::string color_code;
+        for (const auto &pair: tableau) {
+            if (pair.second > indexMax) {
+                indexMax = pair.second;
+                valeurMax = pair.first;
+            }
+        }
 
-    if (valeurMax == "AB123CD")
-    {
-      verification_result = "V";
-      color_code = "\033[32m"; // Vert
-    }
-    else
-    {
-      verification_result = "X";
-      color_code = "\033[31m"; // Rouge
-    }
+        tableau.clear();
 
-    std::string reset_code = "\033[0m"; // Réinitialiser la couleur
-    std::string message_with_newline = color_code + verification_result + " -- " + valeurMax + reset_code + "\n";
-    send_message_to_socket(message_with_newline.c_str());
-  }
-}
-
-int main(int argc, const char **argv)
-{
-  signal(SIGSEGV, segfault_handler); // install our segfault handler
-  daemon_active = true;
-
-  bool noDaemon = false;
-  bool clockOn = false;
-  std::string logFile;
-
-  std::string configDir;
-
-  TCLAP::CmdLine cmd("OpenAlpr Daemon", ' ', Alpr::getVersion());
-
-  TCLAP::ValueArg<std::string> configDirArg("", "config", "Path to the openalpr config directory that contains alprd.conf and openalpr.conf. (Default: /etc/openalpr/)", false, "/etc/openalpr/", "config_file");
-  TCLAP::ValueArg<std::string> logFileArg("l", "log", "Log file to write to.  Default=" + DEFAULT_LOG_FILE_PATH, false, DEFAULT_LOG_FILE_PATH, "topN");
-
-  TCLAP::SwitchArg daemonOffSwitch("f", "foreground", "Set this flag for debugging.  Disables forking the process as a daemon and runs in the foreground.  Default=off", cmd, false);
-  TCLAP::SwitchArg clockSwitch("", "clock", "Display timing information to log.  Default=off", cmd, false);
-
-  init_server_socket();
-  try
-  {
-
-    cmd.add(configDirArg);
-    cmd.add(logFileArg);
-
-    if (cmd.parse(argc, argv) == false)
-    {
-      // Error occurred while parsing.  Exit now.
-      return 1;
-    }
-
-    // Make sure configDir ends in a slash
-    configDir = configDirArg.getValue();
-    if (hasEnding(configDir, "/") == false)
-      configDir = configDir + "/";
-
-    logFile = logFileArg.getValue();
-    noDaemon = daemonOffSwitch.getValue();
-    clockOn = clockSwitch.getValue();
-  }
-  catch (TCLAP::ArgException &e) // catch any exceptions
-  {
-    std::cerr << "error: " << e.error() << " for arg " << e.argId() << std::endl;
-    return 1;
-  }
-
-  std::string openAlprConfigFile = configDir + OPENALPR_CONFIG_FILE_NAME;
-  std::string daemonConfigFile = configDir + ALPRD_CONFIG_FILE_NAME;
-
-  // Validate that the configuration files exist
-  if (fileExists(openAlprConfigFile.c_str()) == false)
-  {
-    std::cerr << "error, openalpr.conf file does not exist at: " << openAlprConfigFile << std::endl;
-    return 1;
-  }
-  if (fileExists(daemonConfigFile.c_str()) == false)
-  {
-    std::cerr << "error, alprd.conf file does not exist at: " << daemonConfigFile << std::endl;
-    return 1;
-  }
-
-  log4cplus::BasicConfigurator config;
-  config.configure();
-
-  if (noDaemon == false)
-  {
-    // Fork off into a separate daemon
-    daemon(0, 0);
-
-    log4cplus::SharedAppenderPtr myAppender(new log4cplus::RollingFileAppender(logFile));
-    myAppender->setName("alprd_appender");
-    // Redirect std out to log file
-    logger = log4cplus::Logger::getInstance(LOG4CPLUS_TEXT("alprd"));
-    logger.addAppender(myAppender);
-
-    LOG4CPLUS_INFO(logger, "Running OpenALPR daemon in daemon mode.");
-  }
-  else
-  {
-    // log4cplus::SharedAppenderPtr myAppender(new log4cplus::ConsoleAppender());
-    // myAppender->setName("alprd_appender");
-    //  Redirect std out to log file
-    logger = log4cplus::Logger::getInstance(LOG4CPLUS_TEXT("alprd"));
-    // logger.addAppender(myAppender);
-
-    LOG4CPLUS_INFO(logger, "Running OpenALPR daemon in the foreground.");
-  }
-
-  LOG4CPLUS_INFO(logger, "Using: " << daemonConfigFile << " for daemon configuration");
-
-  std::string daemon_defaults_file = INSTALL_PREFIX "/share/openalpr/config/alprd.defaults.conf";
-  DaemonConfig daemon_config(daemonConfigFile, daemon_defaults_file);
-
-  if (daemon_config.stream_urls.size() == 0)
-  {
-    LOG4CPLUS_FATAL(logger, "No video streams defined in the configuration.");
-    return 1;
-  }
-
-  LOG4CPLUS_INFO(logger, "Using: " << daemon_config.imageFolder << " for storing valid plate images");
-
-  pid_t pid;
-
-  std::vector<tthread::thread *> threads;
-
-  for (int i = 0; i < daemon_config.stream_urls.size(); i++)
-  {
-    pid = fork();
-    if (pid == (pid_t)0)
-    {
-      // This is the child process, kick off the capture data and upload threads
-      CaptureThreadData *tdata = new CaptureThreadData();
-      tdata->stream_url = daemon_config.stream_urls[i];
-      tdata->camera_id = i + 1;
-      tdata->config_file = openAlprConfigFile;
-      tdata->output_images = daemon_config.storePlates;
-      tdata->output_image_folder = daemon_config.imageFolder;
-      tdata->country_code = daemon_config.country;
-      tdata->company_id = daemon_config.company_id;
-      tdata->site_id = daemon_config.site_id;
-      tdata->analysis_threads = daemon_config.analysis_threads;
-      tdata->top_n = daemon_config.topn;
-      tdata->pattern = daemon_config.pattern;
-      tdata->clock_on = clockOn;
-
-      tthread::thread *thread_recognize = new tthread::thread(streamRecognitionThread, (void *)tdata);
-      threads.push_back(thread_recognize);
-
-      if (daemon_config.uploadData)
-      {
-        // Kick off the data upload thread
-        UploadThreadData *udata = new UploadThreadData();
-        udata->upload_url = daemon_config.upload_url;
-        tthread::thread *thread_upload = new tthread::thread(dataUploadThread, (void *)udata);
-
-        threads.push_back(thread_upload);
-      }
-
-      break;
-    }
-    // Parent process will continue and spawn more children
-  }
-
-  while (daemon_active)
-    alpr::sleep_ms(30);
-
-  for (uint16_t i = 0; i < threads.size(); i++)
-    delete threads[i];
-
-  return 0;
-}
-
-void processingThread(void *arg)
-{
-  CaptureThreadData *tdata = (CaptureThreadData *)arg;
-  Alpr alpr(tdata->country_code, tdata->config_file);
-  alpr.setTopN(tdata->top_n);
-  alpr.setDefaultRegion(tdata->pattern);
-
-  while (daemon_active)
-  {
-
-    // Wait for a new frame
-    cv::Mat frame = framesQueue.pop();
-
-    // Process new frame
-    timespec startTime;
-    getTimeMonotonic(&startTime);
-
-    std::vector<AlprRegionOfInterest> regionsOfInterest;
-    regionsOfInterest.push_back(AlprRegionOfInterest(0, 0, frame.cols, frame.rows));
-
-    AlprResults results = alpr.recognize(frame.data, frame.elemSize(), frame.cols, frame.rows, regionsOfInterest);
-
-    timespec endTime;
-    getTimeMonotonic(&endTime);
-    double totalProcessingTime = diffclock(startTime, endTime);
-
-    if (tdata->clock_on)
-    {
-      LOG4CPLUS_INFO(logger, "Camera " << tdata->camera_id << " processed frame in: " << totalProcessingTime << " ms.");
-    }
-
-    if (results.plates.size() > 0)
-    {
-
-      std::stringstream uuid_ss;
-      uuid_ss << tdata->site_id << "-cam" << tdata->camera_id << "-" << getEpochTimeMs();
-      std::string uuid = uuid_ss.str();
-
-      // Save the image to disk (using the UUID)
-      if (tdata->output_images)
-      {
-        std::stringstream ss;
-        ss << tdata->output_image_folder << "/" << uuid << ".jpg";
-        cv::imwrite(ss.str(), frame);
-      }
-
-      // Update the JSON content to include UUID and camera ID
-      std::string json = alpr.toJson(results);
-      cJSON *root = cJSON_Parse(json.c_str());
-      cJSON_AddStringToObject(root, "uuid", uuid.c_str());
-      cJSON_AddNumberToObject(root, "camera_id", tdata->camera_id);
-      cJSON_AddStringToObject(root, "site_id", tdata->site_id.c_str());
-      cJSON_AddNumberToObject(root, "img_width", frame.cols);
-      cJSON_AddNumberToObject(root, "img_height", frame.rows);
-
-      // Add the company ID to the output if configured
-      if (tdata->company_id.length() > 0)
-        cJSON_AddStringToObject(root, "company_id", tdata->company_id.c_str());
-
-      char *out;
-      out = cJSON_PrintUnformatted(root);
-      cJSON_Delete(root);
-
-      std::string response(out);
-
-      free(out);
-
-      // Push the results to the Beanstalk queue
-      for (int j = 0; j < results.plates.size(); j++)
-      {
-        LOG4CPLUS_DEBUG(logger, "Writing plate " << results.plates[j].bestPlate.characters << " (" << uuid << ") to queue.");
-        std::string plate_string(results.plates[j].bestPlate.characters);
-
-        gererEntree(tableau, plate_string);
-
-        /*
-        // Condition pour vérifier la valeur de plate_string
         std::string verification_result;
         std::string color_code;
 
-        if (plate_string == "AB123CD")
-        {
-          verification_result = "V";
-          color_code = "\033[32m"; // Vert
-        }
-        else
-        {
-          verification_result = "X";
-          color_code = "\033[31m"; // Rouge
+        if (valeurMax == "AB123CD") {
+            verification_result = "V";
+            color_code = "\033[32m"; // Green
+        } else {
+            verification_result = "X";
+            color_code = "\033[31m"; // Red
         }
 
-        std::string reset_code = "\033[0m"; // Réinitialiser la couleur
-        std::string message_with_newline = color_code + verification_result + reset_code + " -- " + plate_string + "\n";
+        std::string reset_code = "\033[0m"; // Reset color
+        std::string message_with_newline = color_code + verification_result + " -- " + valeurMax + reset_code + "\n";
         send_message_to_socket(message_with_newline.c_str());
-        */
-      }
-
-      //std::string message_with_newline = response + "\n";
-      //send_message_to_socket(message_with_newline.c_str());
-      writeToQueue(response);
     }
-    usleep(10000);
-  }
 }
 
-void streamRecognitionThread(void *arg)
-{
-  CaptureThreadData *tdata = (CaptureThreadData *)arg;
+int main(int argc, const char **argv) {
+    signal(SIGSEGV, segfault_handler); // install our segfault handler
+    daemon_active = true;
 
-  LOG4CPLUS_INFO(logger, "country: " << tdata->country_code << " -- config file: " << tdata->config_file);
-  LOG4CPLUS_INFO(logger, "pattern: " << tdata->pattern);
-  LOG4CPLUS_INFO(logger, "Stream " << tdata->camera_id << ": " << tdata->stream_url);
+    bool noDaemon = false;
+    bool clockOn = false;
+    std::string logFile;
 
-  /* Create processing threads */
-  const int num_threads = tdata->analysis_threads;
-  tthread::thread *threads[num_threads];
+    std::string configDir;
 
-  for (int i = 0; i < num_threads; i++)
-  {
-    LOG4CPLUS_INFO(logger, "Spawning Thread " << i);
-    tthread::thread *t = new tthread::thread(processingThread, (void *)tdata);
-    threads[i] = t;
-  }
+    TCLAP::CmdLine cmd("OpenAlpr Daemon", ' ', Alpr::getVersion());
 
-  cv::Mat frame;
-  LoggingVideoBuffer videoBuffer(logger);
-  videoBuffer.connect(tdata->stream_url, 5);
-  LOG4CPLUS_INFO(logger, "Starting camera " << tdata->camera_id);
+    TCLAP::ValueArg<std::string> configDirArg("", "config",
+                                              "Path to the openalpr config directory that contains alprd.conf and openalpr.conf. (Default: /etc/openalpr/)",
+                                              false, "/etc/openalpr/", "config_file");
+    TCLAP::ValueArg<std::string> logFileArg("l", "log", "Log file to write to.  Default=" + DEFAULT_LOG_FILE_PATH,
+                                            false, DEFAULT_LOG_FILE_PATH, "topN");
 
-  while (daemon_active)
-  {
-    std::vector<cv::Rect> regionsOfInterest;
-    int response = videoBuffer.getLatestFrame(&frame, regionsOfInterest);
+    TCLAP::SwitchArg daemonOffSwitch("f", "foreground",
+                                     "Set this flag for debugging.  Disables forking the process as a daemon and runs in the foreground.  Default=off",
+                                     cmd, false);
+    TCLAP::SwitchArg clockSwitch("", "clock", "Display timing information to log.  Default=off", cmd, false);
 
-    if (response != -1)
-    {
-      if (framesQueue.empty())
-      {
-        framesQueue.push(frame.clone());
-      }
-    }
+    init_server_socket();
+    try {
 
-    usleep(10000);
-  }
+        cmd.add(configDirArg);
+        cmd.add(logFileArg);
 
-  videoBuffer.disconnect();
-  LOG4CPLUS_INFO(logger, "Video processing ended");
-  delete tdata;
-  for (int i = 0; i < num_threads; i++)
-  {
-    delete threads[i];
-  }
-}
-
-bool writeToQueue(std::string jsonResult)
-{
-  try
-  {
-    Beanstalk::Client client(BEANSTALK_QUEUE_HOST, BEANSTALK_PORT);
-    client.use(BEANSTALK_TUBE_NAME);
-
-    int id = client.put(jsonResult);
-
-    if (id <= 0)
-    {
-      LOG4CPLUS_ERROR(logger, "Failed to write data to queue");
-      return false;
-    }
-
-    LOG4CPLUS_DEBUG(logger, "put job id: " << id);
-  }
-  catch (const std::runtime_error &error)
-  {
-    LOG4CPLUS_WARN(logger, "Error connecting to Beanstalk.  Result has not been saved.");
-    return false;
-  }
-  return true;
-}
-
-void dataUploadThread(void *arg)
-{
-  CURL *curl;
-
-  /* In windows, this will init the winsock stuff */
-  curl_global_init(CURL_GLOBAL_ALL);
-
-  UploadThreadData *udata = (UploadThreadData *)arg;
-
-  while (daemon_active)
-  {
-    try
-    {
-      /* get a curl handle */
-      curl = curl_easy_init();
-      Beanstalk::Client client(BEANSTALK_QUEUE_HOST, BEANSTALK_PORT);
-
-      client.watch(BEANSTALK_TUBE_NAME);
-
-      while (daemon_active)
-      {
-        Beanstalk::Job job;
-
-        client.reserve(job);
-
-        if (job.id() > 0)
-        {
-          // LOG4CPLUS_DEBUG(logger, job.body() );
-          if (uploadPost(curl, udata->upload_url, job.body()))
-          {
-            client.del(job.id());
-            LOG4CPLUS_INFO(logger, "Job: " << job.id() << " successfully uploaded");
-            // Wait 10ms
-            sleep_ms(10);
-          }
-          else
-          {
-            client.release(job);
-            LOG4CPLUS_WARN(logger, "Job: " << job.id() << " failed to upload.  Will retry.");
-            // Wait 2 seconds
-            sleep_ms(2000);
-          }
+        if (cmd.parse(argc, argv) == false) {
+            // Error occurred while parsing.  Exit now.
+            return 1;
         }
-      }
 
-      /* always cleanup */
-      curl_easy_cleanup(curl);
+        // Make sure configDir ends in a slash
+        configDir = configDirArg.getValue();
+        if (hasEnding(configDir, "/") == false)
+            configDir = configDir + "/";
+
+        logFile = logFileArg.getValue();
+        noDaemon = daemonOffSwitch.getValue();
+        clockOn = clockSwitch.getValue();
     }
-    catch (const std::runtime_error &error)
+    catch (TCLAP::ArgException &e) // catch any exceptions
     {
-      LOG4CPLUS_WARN(logger, "Error connecting to Beanstalk.  Will retry.");
+        std::cerr << "error: " << e.error() << " for arg " << e.argId() << std::endl;
+        return 1;
     }
-    // wait 5 seconds
-    usleep(5000000);
-  }
 
-  curl_global_cleanup();
+    std::string openAlprConfigFile = configDir + OPENALPR_CONFIG_FILE_NAME;
+    std::string daemonConfigFile = configDir + ALPRD_CONFIG_FILE_NAME;
+
+    // Validate that the configuration files exist
+    if (fileExists(openAlprConfigFile.c_str()) == false) {
+        std::cerr << "error, openalpr.conf file does not exist at: " << openAlprConfigFile << std::endl;
+        return 1;
+    }
+    if (fileExists(daemonConfigFile.c_str()) == false) {
+        std::cerr << "error, alprd.conf file does not exist at: " << daemonConfigFile << std::endl;
+        return 1;
+    }
+
+    log4cplus::BasicConfigurator config;
+    config.configure();
+
+    if (noDaemon == false) {
+        // Fork off into a separate daemon
+        daemon(0, 0);
+
+        log4cplus::SharedAppenderPtr myAppender(new log4cplus::RollingFileAppender(logFile));
+        myAppender->setName("alprd_appender");
+        // Redirect std out to log file
+        logger = log4cplus::Logger::getInstance(LOG4CPLUS_TEXT("alprd"));
+        logger.addAppender(myAppender);
+
+        LOG4CPLUS_INFO(logger, "Running OpenALPR daemon in daemon mode.");
+    } else {
+        // log4cplus::SharedAppenderPtr myAppender(new log4cplus::ConsoleAppender());
+        // myAppender->setName("alprd_appender");
+        //  Redirect std out to log file
+        logger = log4cplus::Logger::getInstance(LOG4CPLUS_TEXT("alprd"));
+        // logger.addAppender(myAppender);
+
+        LOG4CPLUS_INFO(logger, "Running OpenALPR daemon in the foreground.");
+    }
+
+    LOG4CPLUS_INFO(logger, "Using: " << daemonConfigFile << " for daemon configuration");
+
+    std::string
+            daemon_defaults_file = INSTALL_PREFIX
+    "/share/openalpr/config/alprd.defaults.conf";
+    DaemonConfig daemon_config(daemonConfigFile, daemon_defaults_file);
+
+    if (daemon_config.stream_urls.size() == 0) {
+        LOG4CPLUS_FATAL(logger, "No video streams defined in the configuration.");
+        return 1;
+    }
+
+    LOG4CPLUS_INFO(logger, "Using: " << daemon_config.imageFolder << " for storing valid plate images");
+
+    pid_t pid;
+
+    std::vector < tthread::thread * > threads;
+
+    for (int i = 0; i < daemon_config.stream_urls.size(); i++) {
+        pid = fork();
+        if (pid == (pid_t) 0) {
+            // This is the child process, kick off the capture data and upload threads
+            CaptureThreadData *tdata = new CaptureThreadData();
+            tdata->stream_url = daemon_config.stream_urls[i];
+            tdata->camera_id = i + 1;
+            tdata->config_file = openAlprConfigFile;
+            tdata->output_images = daemon_config.storePlates;
+            tdata->output_image_folder = daemon_config.imageFolder;
+            tdata->country_code = daemon_config.country;
+            tdata->company_id = daemon_config.company_id;
+            tdata->site_id = daemon_config.site_id;
+            tdata->analysis_threads = daemon_config.analysis_threads;
+            tdata->top_n = daemon_config.topn;
+            tdata->pattern = daemon_config.pattern;
+            tdata->clock_on = clockOn;
+
+            tthread::thread *thread_recognize = new tthread::thread(streamRecognitionThread, (void *) tdata);
+            threads.push_back(thread_recognize);
+
+            if (daemon_config.uploadData) {
+                // Kick off the data upload thread
+                UploadThreadData *udata = new UploadThreadData();
+                udata->upload_url = daemon_config.upload_url;
+                tthread::thread *thread_upload = new tthread::thread(dataUploadThread, (void *) udata);
+
+                threads.push_back(thread_upload);
+            }
+
+            break;
+        }
+        // Parent process will continue and spawn more children
+    }
+
+    while (daemon_active)
+        alpr::sleep_ms(30);
+
+    for (uint16_t i = 0; i < threads.size(); i++)
+        delete threads[i];
+
+    return 0;
 }
 
-bool uploadPost(CURL *curl, std::string url, std::string data)
-{
-  bool success = true;
-  CURLcode res;
-  struct curl_slist *headers = NULL; // init to NULL is important
+void processingThread(void *arg) {
+    CaptureThreadData *tdata = (CaptureThreadData *) arg;
+    Alpr alpr(tdata->country_code, tdata->config_file);
+    alpr.setTopN(tdata->top_n);
+    alpr.setDefaultRegion(tdata->pattern);
 
-  /* Add the required headers */
-  headers = curl_slist_append(headers, "Accept: application/json");
-  headers = curl_slist_append(headers, "Content-Type: application/json");
-  headers = curl_slist_append(headers, "charsets: utf-8");
+    while (daemon_active) {
 
-  if (curl)
-  {
-    /* Add the headers */
-    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+        // Wait for a new frame
+        cv::Mat frame = framesQueue.pop();
 
-    /* First set the URL that is about to receive our POST. This URL can
-       just as well be a https:// URL if that is what should receive the
-       data. */
-    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-    /* Now specify the POST data */
-    // char* escaped_data = curl_easy_escape(curl, data.c_str(), data.length());
-    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, data.c_str());
-    // curl_free(escaped_data);
+        // Process new frame
+        timespec startTime;
+        getTimeMonotonic(&startTime);
 
-    /* Perform the request, res will get the return code */
-    res = curl_easy_perform(curl);
-    /* Check for errors */
-    if (res != CURLE_OK)
-    {
-      success = false;
+        std::vector <AlprRegionOfInterest> regionsOfInterest;
+        regionsOfInterest.push_back(AlprRegionOfInterest(0, 0, frame.cols, frame.rows));
+
+        AlprResults results = alpr.recognize(frame.data, frame.elemSize(), frame.cols, frame.rows, regionsOfInterest);
+
+        timespec endTime;
+        getTimeMonotonic(&endTime);
+        double totalProcessingTime = diffclock(startTime, endTime);
+
+        if (tdata->clock_on) {
+            LOG4CPLUS_INFO(logger,
+                           "Camera " << tdata->camera_id << " processed frame in: " << totalProcessingTime << " ms.");
+        }
+
+        if (results.plates.size() > 0) {
+
+            std::stringstream uuid_ss;
+            uuid_ss << tdata->site_id << "-cam" << tdata->camera_id << "-" << getEpochTimeMs();
+            std::string uuid = uuid_ss.str();
+
+            // Save the image to disk (using the UUID)
+            if (tdata->output_images) {
+                std::stringstream ss;
+                ss << tdata->output_image_folder << "/" << uuid << ".jpg";
+                cv::imwrite(ss.str(), frame);
+            }
+
+            // Update the JSON content to include UUID and camera ID
+            std::string json = alpr.toJson(results);
+            cJSON *root = cJSON_Parse(json.c_str());
+            cJSON_AddStringToObject(root, "uuid", uuid.c_str());
+            cJSON_AddNumberToObject(root, "camera_id", tdata->camera_id);
+            cJSON_AddStringToObject(root, "site_id", tdata->site_id.c_str());
+            cJSON_AddNumberToObject(root, "img_width", frame.cols);
+            cJSON_AddNumberToObject(root, "img_height", frame.rows);
+
+            // Add the company ID to the output if configured
+            if (tdata->company_id.length() > 0)
+                cJSON_AddStringToObject(root, "company_id", tdata->company_id.c_str());
+
+            char *out;
+            out = cJSON_PrintUnformatted(root);
+            cJSON_Delete(root);
+
+            std::string response(out);
+
+            free(out);
+
+            // Push the results to the Beanstalk queue
+            for (int j = 0; j < results.plates.size(); j++) {
+                LOG4CPLUS_DEBUG(logger, "Writing plate " << results.plates[j].bestPlate.characters << " (" << uuid
+                                                         << ") to queue.");
+                std::string plate_string(results.plates[j].bestPlate.characters);
+                processEntry(tableau, plate_string);
+            }
+            writeToQueue(response);
+        }
+        usleep(10000);
     }
-  }
+}
 
-  return success;
+void streamRecognitionThread(void *arg) {
+    CaptureThreadData *tdata = (CaptureThreadData *) arg;
+
+    LOG4CPLUS_INFO(logger, "country: " << tdata->country_code << " -- config file: " << tdata->config_file);
+    LOG4CPLUS_INFO(logger, "pattern: " << tdata->pattern);
+    LOG4CPLUS_INFO(logger, "Stream " << tdata->camera_id << ": " << tdata->stream_url);
+
+    /* Create processing threads */
+    const int num_threads = tdata->analysis_threads;
+    tthread::thread *threads[num_threads];
+
+    for (int i = 0; i < num_threads; i++) {
+        LOG4CPLUS_INFO(logger, "Spawning Thread " << i);
+        tthread::thread *t = new tthread::thread(processingThread, (void *) tdata);
+        threads[i] = t;
+    }
+
+    cv::Mat frame;
+    LoggingVideoBuffer videoBuffer(logger);
+    videoBuffer.connect(tdata->stream_url, 5);
+    LOG4CPLUS_INFO(logger, "Starting camera " << tdata->camera_id);
+
+    while (daemon_active) {
+        std::vector <cv::Rect> regionsOfInterest;
+        int response = videoBuffer.getLatestFrame(&frame, regionsOfInterest);
+
+        if (response != -1) {
+            if (framesQueue.empty()) {
+                framesQueue.push(frame.clone());
+            }
+        }
+
+        usleep(10000);
+    }
+
+    videoBuffer.disconnect();
+    LOG4CPLUS_INFO(logger, "Video processing ended");
+    delete tdata;
+    for (int i = 0; i < num_threads; i++) {
+        delete threads[i];
+    }
+}
+
+bool writeToQueue(std::string jsonResult) {
+    try {
+        Beanstalk::Client client(BEANSTALK_QUEUE_HOST, BEANSTALK_PORT);
+        client.use(BEANSTALK_TUBE_NAME);
+
+        int id = client.put(jsonResult);
+
+        if (id <= 0) {
+            LOG4CPLUS_ERROR(logger, "Failed to write data to queue");
+            return false;
+        }
+
+        LOG4CPLUS_DEBUG(logger, "put job id: " << id);
+    }
+    catch (const std::runtime_error &error) {
+        LOG4CPLUS_WARN(logger, "Error connecting to Beanstalk.  Result has not been saved.");
+        return false;
+    }
+    return true;
+}
+
+void dataUploadThread(void *arg) {
+    CURL *curl;
+
+    /* In windows, this will init the winsock stuff */
+    curl_global_init(CURL_GLOBAL_ALL);
+
+    UploadThreadData *udata = (UploadThreadData *) arg;
+
+    while (daemon_active) {
+        try {
+            /* get a curl handle */
+            curl = curl_easy_init();
+            Beanstalk::Client client(BEANSTALK_QUEUE_HOST, BEANSTALK_PORT);
+
+            client.watch(BEANSTALK_TUBE_NAME);
+
+            while (daemon_active) {
+                Beanstalk::Job job;
+
+                client.reserve(job);
+
+                if (job.id() > 0) {
+                    // LOG4CPLUS_DEBUG(logger, job.body() );
+                    if (uploadPost(curl, udata->upload_url, job.body())) {
+                        client.del(job.id());
+                        LOG4CPLUS_INFO(logger, "Job: " << job.id() << " successfully uploaded");
+                        // Wait 10ms
+                        sleep_ms(10);
+                    } else {
+                        client.release(job);
+                        LOG4CPLUS_WARN(logger, "Job: " << job.id() << " failed to upload.  Will retry.");
+                        // Wait 2 seconds
+                        sleep_ms(2000);
+                    }
+                }
+            }
+
+            /* always cleanup */
+            curl_easy_cleanup(curl);
+        }
+        catch (const std::runtime_error &error) {
+            LOG4CPLUS_WARN(logger, "Error connecting to Beanstalk.  Will retry.");
+        }
+        // wait 5 seconds
+        usleep(5000000);
+    }
+
+    curl_global_cleanup();
+}
+
+bool uploadPost(CURL *curl, std::string url, std::string data) {
+    bool success = true;
+    CURLcode res;
+    struct curl_slist *headers = NULL; // init to NULL is important
+
+    /* Add the required headers */
+    headers = curl_slist_append(headers, "Accept: application/json");
+    headers = curl_slist_append(headers, "Content-Type: application/json");
+    headers = curl_slist_append(headers, "charsets: utf-8");
+
+    if (curl) {
+        /* Add the headers */
+        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+
+        /* First set the URL that is about to receive our POST. This URL can
+           just as well be a https:// URL if that is what should receive the
+           data. */
+        curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+        /* Now specify the POST data */
+        // char* escaped_data = curl_easy_escape(curl, data.c_str(), data.length());
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, data.c_str());
+        // curl_free(escaped_data);
+
+        /* Perform the request, res will get the return code */
+        res = curl_easy_perform(curl);
+        /* Check for errors */
+        if (res != CURLE_OK) {
+            success = false;
+        }
+    }
+
+    return success;
 }
