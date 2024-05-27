@@ -26,6 +26,10 @@
 #include <netinet/in.h>
 #include <string>
 #include <unordered_map>
+#include <fcntl.h>
+#include <sys/ioctl.h>
+#include <stdio.h>
+#include <string.h>
 
 #define PORT 8080
 
@@ -140,9 +144,39 @@ void send_message_to_socket(const char *message) {
         }
     }
 
-    ssize_t sent = send(new_socket, message, strlen(message), 0);
-    if (sent == -1) {
-        perror("send failed");
+    if (strlen(message) == 7) {
+        std::string input = message;
+        std::string transformed_message = input.substr(0, 2) + "-" + input.substr(2, 3) + "-" + input.substr(5, 2);
+
+        ssize_t sent = send(new_socket, transformed_message.c_str(), transformed_message.length(), 0);
+        if (sent == -1) {
+            perror("send failed");
+        }
+    } else {
+        std::cerr << "Le message ne fait pas 7 caractères." << std::endl;
+    }
+}
+
+void send_message_to_serial_port(const char *message) {
+    int port = open("/dev/ttyAMA0", O_RDWR | O_NOCTTY);
+
+    if (port == -1) {
+        std::cerr << "Erreur lors de l'ouverture du port série." << std::endl;
+    }
+
+    const char *baud_rate_command = "stty -F /dev/ttyAMA0 9600";
+    system(baud_rate_command);
+
+    if (strlen(message) == 7) {
+        std::string input = message;
+        std::string transformed_message = input.substr(0, 2) + "-" + input.substr(2, 3) + "-" + input.substr(5, 2);
+
+        ssize_t bytes_written = write(port, transformed_message.c_str(), transformed_message.length());
+        if (bytes_written == -1) {
+            std::cerr << "Erreur lors de l'envoi du message." << std::endl;
+        } else {
+            std::cout << "Message envoyé avec succès." << std::endl;
+        }
     }
 }
 
@@ -165,21 +199,13 @@ void processEntry(std::unordered_map<std::string, int> &tableau, const std::stri
         }
 
         tableau.clear();
+        std::string message_with_newline = valeurMax + "\n";
 
-        std::string verification_result;
-        std::string color_code;
+        //Socket mode
+        //send_message_to_socket(message_with_newline.c_str());
 
-        if (valeurMax == "AB123CD") {
-            verification_result = "V";
-            color_code = "\033[32m"; // Green
-        } else {
-            verification_result = "X";
-            color_code = "\033[31m"; // Red
-        }
-
-        std::string reset_code = "\033[0m"; // Reset color
-        std::string message_with_newline = color_code + verification_result + " -- " + valeurMax + reset_code + "\n";
-        send_message_to_socket(message_with_newline.c_str());
+        //RS mode
+        send_message_to_serial_port(message_with_newline.c_str());
     }
 }
 
