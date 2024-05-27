@@ -9,7 +9,7 @@ sudo apt install beanstalkd
 ```
 2. Clone the latest code from GitHub
 ```
-git clone https://github.com/openalpr/openalpr.git
+git clone https://github.com/vanhovev/openalpr.git
 ```
 3. Setup the build directory
 ```
