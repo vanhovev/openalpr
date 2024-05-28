@@ -1,4 +1,4 @@
-# OpenALPR - Socket - RS232
+# OpenALPR - Socket - Serial port
 
 This repository contains resources and instructions for utilizing OpenALPR for license plate recognition. Please refer to the Wiki for detailed guides and documentation.
 
