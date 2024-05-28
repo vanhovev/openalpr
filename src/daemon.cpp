@@ -167,9 +167,9 @@ void send_message_to_serial_port(const char *message) {
     const char *baud_rate_command = "stty -F /dev/ttyAMA0 9600";
     system(baud_rate_command);
 
-    if (strlen(message) == 7) {
+    if (strlen(message) == 8) {
         std::string input = message;
-        std::string transformed_message = input.substr(0, 2) + "-" + input.substr(2, 3) + "-" + input.substr(5, 2);
+        std::string transformed_message = input.substr(0, 2) + "-" + input.substr(2, 3) + "-" + input.substr(5, 2) + "\n\r";
 
         ssize_t bytes_written = write(port, transformed_message.c_str(), transformed_message.length());
         if (bytes_written == -1) {
