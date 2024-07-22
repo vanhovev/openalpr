@@ -147,7 +147,7 @@ void send_message_to_socket(const char *message) {
             perror("send failed");
         }
     } else {
-        std::cerr << "Le message ne fait pas 7 caractères." << std::endl;
+        LOG4CPLUS_ERROR(logger, "Message must be 7 characters long.");
     }
 }
 
@@ -155,7 +155,7 @@ void send_message_to_serial_port(const char *message) {
     int port = open("/dev/ttyAMA0", O_RDWR | O_NOCTTY);
 
     if (port == -1) {
-        std::cerr << "Erreur lors de l'ouverture du port série." << std::endl;
+        LOG4CPLUS_ERROR(logger, "Error opening serial port.");
     }
 
     const char *baud_rate_command = "stty -F /dev/ttyAMA0 9600";
@@ -168,9 +168,9 @@ void send_message_to_serial_port(const char *message) {
 
         ssize_t bytes_written = write(port, transformed_message.c_str(), transformed_message.length());
         if (bytes_written == -1) {
-            std::cerr << "Erreur lors de l'envoi du message." << std::endl;
+            LOG4CPLUS_ERROR(logger, "Error writing to serial port.");
         } else {
-            std::cout << "Message envoyé avec succès." << std::endl;
+            LOG4CPLUS_INFO(logger, "Message envoyé : " << transformed_message);
         }
     }
 }
@@ -192,6 +192,8 @@ void processEntry(std::unordered_map<std::string, int> &tableau, const std::stri
                 valeurMax = pair.first;
             }
         }
+
+        LOG4CPLUS_INFO(logger, "Plate is : " << valeurMax <<  " - Find after :" << tableau.size() << " plates");
 
         tableau.clear();
         std::string message_with_newline = valeurMax + "\n";
