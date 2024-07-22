@@ -427,7 +427,8 @@ void processingThread(void *arg) {
                 std::string plate_string(results.plates[j].bestPlate.characters);
                 processEntry(tableau, plate_string);
             }
-            writeToQueue(response);
+            // old code for send data to port 11300
+            //writeToQueue(response);
         }
         usleep(10000);
     }
