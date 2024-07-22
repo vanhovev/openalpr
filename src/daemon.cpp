@@ -406,12 +406,12 @@ void processingThread(void *arg) {
 
             free(out);
 
-            // Push the results to the Beanstalk queue
             for (int j = 0; j < results.plates.size(); j++) {
                 LOG4CPLUS_DEBUG(logger, "Writing plate " << results.plates[j].bestPlate.characters << " (" << uuid
                                                          << ") to queue.");
                 std::string plate_string(results.plates[j].bestPlate.characters);
                 processEntry(tableau, plate_string);
+                LOG4CPLUS_DEBUG(logger, "EDITED");
             }
         }
         usleep(10000);
