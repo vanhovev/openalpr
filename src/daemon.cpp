@@ -41,12 +41,6 @@ SafeQueue<cv::Mat> framesQueue;
 // Prototypes
 void streamRecognitionThread(void *arg);
 
-bool writeToQueue(std::string jsonResult);
-
-bool uploadPost(CURL *curl, std::string url, std::string data);
-
-void dataUploadThread(void *arg);
-
 // Constants
 const std::string ALPRD_CONFIG_FILE_NAME = "alprd.conf";
 const std::string OPENALPR_CONFIG_FILE_NAME = "openalpr.conf";
@@ -169,7 +163,8 @@ void send_message_to_serial_port(const char *message) {
 
     if (strlen(message) == 8) {
         std::string input = message;
-        std::string transformed_message = input.substr(0, 2) + "-" + input.substr(2, 3) + "-" + input.substr(5, 2) + "\n\r";
+        std::string transformed_message =
+                input.substr(0, 2) + "-" + input.substr(2, 3) + "-" + input.substr(5, 2) + "\n\r";
 
         ssize_t bytes_written = write(port, transformed_message.c_str(), transformed_message.length());
         if (bytes_written == -1) {
@@ -238,14 +233,14 @@ int main(int argc, const char **argv) {
         cmd.add(configDirArg);
         cmd.add(logFileArg);
 
-        if (cmd.parse(argc, argv) == false) {
+        if (!cmd.parse(argc, argv)) {
             // Error occurred while parsing.  Exit now.
             return 1;
         }
 
         // Make sure configDir ends in a slash
         configDir = configDirArg.getValue();
-        if (hasEnding(configDir, "/") == false)
+        if (!hasEnding(configDir, "/"))
             configDir = configDir + "/";
 
         logFile = logFileArg.getValue();
@@ -262,11 +257,11 @@ int main(int argc, const char **argv) {
     std::string daemonConfigFile = configDir + ALPRD_CONFIG_FILE_NAME;
 
     // Validate that the configuration files exist
-    if (fileExists(openAlprConfigFile.c_str()) == false) {
+    if (!fileExists(openAlprConfigFile.c_str())) {
         std::cerr << "error, openalpr.conf file does not exist at: " << openAlprConfigFile << std::endl;
         return 1;
     }
-    if (fileExists(daemonConfigFile.c_str()) == false) {
+    if (!fileExists(daemonConfigFile.c_str())) {
         std::cerr << "error, alprd.conf file does not exist at: " << daemonConfigFile << std::endl;
         return 1;
     }
@@ -274,7 +269,7 @@ int main(int argc, const char **argv) {
     log4cplus::BasicConfigurator config;
     config.configure();
 
-    if (noDaemon == false) {
+    if (!noDaemon) {
         // Fork off into a separate daemon
         daemon(0, 0);
 
@@ -333,15 +328,6 @@ int main(int argc, const char **argv) {
 
             tthread::thread *thread_recognize = new tthread::thread(streamRecognitionThread, (void *) tdata);
             threads.push_back(thread_recognize);
-
-            if (daemon_config.uploadData) {
-                // Kick off the data upload thread
-                UploadThreadData *udata = new UploadThreadData();
-                udata->upload_url = daemon_config.upload_url;
-                tthread::thread *thread_upload = new tthread::thread(dataUploadThread, (void *) udata);
-
-                threads.push_back(thread_upload);
-            }
 
             break;
         }
@@ -427,8 +413,6 @@ void processingThread(void *arg) {
                 std::string plate_string(results.plates[j].bestPlate.characters);
                 processEntry(tableau, plate_string);
             }
-            // old code for send data to port 11300
-            //writeToQueue(response);
         }
         usleep(10000);
     }
@@ -475,109 +459,4 @@ void streamRecognitionThread(void *arg) {
     for (int i = 0; i < num_threads; i++) {
         delete threads[i];
     }
-}
-
-bool writeToQueue(std::string jsonResult) {
-    try {
-        Beanstalk::Client client(BEANSTALK_QUEUE_HOST, BEANSTALK_PORT);
-        client.use(BEANSTALK_TUBE_NAME);
-
-        int id = client.put(jsonResult);
-
-        if (id <= 0) {
-            LOG4CPLUS_ERROR(logger, "Failed to write data to queue");
-            return false;
-        }
-
-        LOG4CPLUS_DEBUG(logger, "put job id: " << id);
-    }
-    catch (const std::runtime_error &error) {
-        LOG4CPLUS_WARN(logger, "Error connecting to Beanstalk.  Result has not been saved.");
-        return false;
-    }
-    return true;
-}
-
-void dataUploadThread(void *arg) {
-    CURL *curl;
-
-    /* In windows, this will init the winsock stuff */
-    curl_global_init(CURL_GLOBAL_ALL);
-
-    UploadThreadData *udata = (UploadThreadData *) arg;
-
-    while (daemon_active) {
-        try {
-            /* get a curl handle */
-            curl = curl_easy_init();
-            Beanstalk::Client client(BEANSTALK_QUEUE_HOST, BEANSTALK_PORT);
-
-            client.watch(BEANSTALK_TUBE_NAME);
-
-            while (daemon_active) {
-                Beanstalk::Job job;
-
-                client.reserve(job);
-
-                if (job.id() > 0) {
-                    // LOG4CPLUS_DEBUG(logger, job.body() );
-                    if (uploadPost(curl, udata->upload_url, job.body())) {
-                        client.del(job.id());
-                        LOG4CPLUS_INFO(logger, "Job: " << job.id() << " successfully uploaded");
-                        // Wait 10ms
-                        sleep_ms(10);
-                    } else {
-                        client.release(job);
-                        LOG4CPLUS_WARN(logger, "Job: " << job.id() << " failed to upload.  Will retry.");
-                        // Wait 2 seconds
-                        sleep_ms(2000);
-                    }
-                }
-            }
-
-            /* always cleanup */
-            curl_easy_cleanup(curl);
-        }
-        catch (const std::runtime_error &error) {
-            LOG4CPLUS_WARN(logger, "Error connecting to Beanstalk.  Will retry.");
-        }
-        // wait 5 seconds
-        usleep(5000000);
-    }
-
-    curl_global_cleanup();
-}
-
-bool uploadPost(CURL *curl, std::string url, std::string data) {
-    bool success = true;
-    CURLcode res;
-    struct curl_slist *headers = NULL; // init to NULL is important
-
-    /* Add the required headers */
-    headers = curl_slist_append(headers, "Accept: application/json");
-    headers = curl_slist_append(headers, "Content-Type: application/json");
-    headers = curl_slist_append(headers, "charsets: utf-8");
-
-    if (curl) {
-        /* Add the headers */
-        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-
-        /* First set the URL that is about to receive our POST. This URL can
-           just as well be a https:// URL if that is what should receive the
-           data. */
-        curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-        /* Now specify the POST data */
-        // char* escaped_data = curl_easy_escape(curl, data.c_str(), data.length());
-        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, data.c_str());
-        // curl_free(escaped_data);
-
-        /* Perform the request, res will get the return code */
-        res = curl_easy_perform(curl);
-        /* Check for errors */
-        if (res != CURLE_OK) {
-            success = false;
-        }
-    }
-
-    return success;
 }
