@@ -94,6 +94,8 @@ static log4cplus::Logger logger;
 int server_fd = -1;
 int new_socket = -1;
 
+int number_of_plates_in_table = 0;
+
 void init_server_socket() {
     struct sockaddr_in address;
     int opt = 1;
@@ -176,6 +178,8 @@ void send_message_to_serial_port(const char *message) {
 }
 
 void processEntry(std::unordered_map<std::string, int> &tableau, const std::string &entree) {
+    number_of_plates_in_table++;
+
     if (tableau.find(entree) != tableau.end()) {
         tableau[entree]++;
     } else {
@@ -193,8 +197,9 @@ void processEntry(std::unordered_map<std::string, int> &tableau, const std::stri
             }
         }
 
-        LOG4CPLUS_INFO(logger, "Plate is : " << valeurMax <<  " - Find after :" << tableau.size() << " plates");
+        LOG4CPLUS_INFO(logger, "Plate is : " << valeurMax <<  " - Find after : " << number_of_plates_in_table << " plates");
 
+        number_of_plates_in_table = 0;
         tableau.clear();
         std::string message_with_newline = valeurMax + "\n";
 
