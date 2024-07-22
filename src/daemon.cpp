@@ -411,7 +411,6 @@ void processingThread(void *arg) {
                                                          << ") to queue.");
                 std::string plate_string(results.plates[j].bestPlate.characters);
                 processEntry(tableau, plate_string);
-                LOG4CPLUS_DEBUG(logger, "EDITED");
             }
         }
         usleep(10000);
