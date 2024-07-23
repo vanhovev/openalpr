@@ -46,10 +46,6 @@ const std::string ALPRD_CONFIG_FILE_NAME = "alprd.conf";
 const std::string OPENALPR_CONFIG_FILE_NAME = "openalpr.conf";
 const std::string DEFAULT_LOG_FILE_PATH = "/var/log/alprd.log";
 
-const std::string BEANSTALK_QUEUE_HOST = "127.0.0.1";
-const int BEANSTALK_PORT = 11300;
-const std::string BEANSTALK_TUBE_NAME = "alprd";
-
 // Variable
 std::string message = "START";
 std::unordered_map<std::string, int> tableau;
@@ -140,16 +136,12 @@ void send_message_to_socket(const char *message) {
         }
     }
 
-    if (strlen(message) == 7) {
-        std::string input = message;
-        std::string transformed_message = input.substr(0, 2) + "-" + input.substr(2, 3) + "-" + input.substr(5, 2);
+    std::string input = message;
+    std::string transformed_message = input.substr(0, 2) + "-" + input.substr(2, 3) + "-" + input.substr(5, 2);
 
-        ssize_t sent = send(new_socket, transformed_message.c_str(), transformed_message.length(), 0);
-        if (sent == -1) {
-            perror("send failed");
-        }
-    } else {
-        LOG4CPLUS_ERROR(logger, "Message must be 7 characters long.");
+    ssize_t sent = send(new_socket, transformed_message.c_str(), transformed_message.length(), 0);
+    if (sent == -1) {
+        perror("send failed");
     }
 }
 
@@ -163,21 +155,24 @@ void send_message_to_serial_port(const char *message) {
     const char *baud_rate_command = "stty -F /dev/ttyAMA0 9600";
     system(baud_rate_command);
 
-    if (strlen(message) == 8) {
-        std::string input = message;
-        std::string transformed_message =
-                input.substr(0, 2) + "-" + input.substr(2, 3) + "-" + input.substr(5, 2) + "\n\r";
+    std::string input = message;
+    std::string transformed_message =
+            input.substr(0, 2) + "-" + input.substr(2, 3) + "-" + input.substr(5, 2) + "\n\r";
 
-        ssize_t bytes_written = write(port, transformed_message.c_str(), transformed_message.length());
-        if (bytes_written == -1) {
-            LOG4CPLUS_ERROR(logger, "Error writing to serial port.");
-        } else {
-            LOG4CPLUS_INFO(logger, "Message envoyé : " << transformed_message);
-        }
+    ssize_t bytes_written = write(port, transformed_message.c_str(), transformed_message.length());
+    if (bytes_written == -1) {
+        LOG4CPLUS_ERROR(logger, "Error writing to serial port.");
+    } else {
+        LOG4CPLUS_INFO(logger, "Message sent to serial port.");
     }
 }
 
 void processEntry(std::unordered_map<std::string, int> &tableau, const std::string &entree) {
+    if (entree.length() != 7) {
+        LOG4CPLUS_ERROR(logger, "Plate must be 7 characters long.");
+        return;
+    }
+
     number_of_plates_in_table++;
 
     if (tableau.find(entree) != tableau.end()) {
@@ -197,17 +192,17 @@ void processEntry(std::unordered_map<std::string, int> &tableau, const std::stri
             }
         }
 
-        LOG4CPLUS_INFO(logger, "Plate is : " << valeurMax <<  " - Find after : " << number_of_plates_in_table << " plates");
+        LOG4CPLUS_INFO(logger,
+                       "Plate is : " << valeurMax << " - Find after : " << number_of_plates_in_table << " plates");
 
         number_of_plates_in_table = 0;
         tableau.clear();
-        std::string message_with_newline = valeurMax + "\n";
 
         //Socket mode
         //send_message_to_socket(message_with_newline.c_str());
 
         //RS mode
-        send_message_to_serial_port(message_with_newline.c_str());
+        send_message_to_serial_port(valeurMax.c_str());
     }
 }
 
