@@ -91,6 +91,7 @@ static log4cplus::Logger logger;
 int server_fd = -1;
 int new_socket = -1;
 
+int number_of_plates_total = 0;
 int number_of_plates_in_table = 0;
 
 void init_server_socket() {
@@ -171,6 +172,8 @@ void send_message_to_serial_port(const char *message) {
 
 
 void processEntry(std::unordered_map<std::string, int> &tableau, const std::string &entree) {
+    number_of_plates_total++;
+
     const std::regex pattern("^[A-Z]{2}[0-9]{3}[A-Z]{2}$");
 
     if (!std::regex_match(entree, pattern)) {
@@ -199,7 +202,7 @@ void processEntry(std::unordered_map<std::string, int> &tableau, const std::stri
             }
         }
 
-        LOG4CPLUS_INFO(logger, "Plate is : " << valeurMax << " - Found after : " << number_of_plates_in_table << " plates");
+        LOG4CPLUS_INFO(logger, "Plate is : " << valeurMax << " - Found after : " << number_of_plates_in_table << "/" << number_of_plates_total " plates");
 
         number_of_plates_in_table = 0;
         tableau.clear();
