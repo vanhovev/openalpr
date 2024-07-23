@@ -30,6 +30,7 @@
 #include <sys/ioctl.h>
 #include <stdio.h>
 #include <string.h>
+#include <regex>
 
 #define PORT 8080
 
@@ -168,9 +169,12 @@ void send_message_to_serial_port(const char *message) {
     }
 }
 
+
 void processEntry(std::unordered_map<std::string, int> &tableau, const std::string &entree) {
-    if (entree.length() != 7) {
-        LOG4CPLUS_ERROR(logger, "Plate must be 7 characters long.");
+    const std::regex pattern("^[A-Z]{2}[0-9]{3}[A-Z]{2}$");
+
+    if (!std::regex_match(entree, pattern)) {
+        LOG4CPLUS_ERROR(logger, "Plate must be in the format XX000XX.");
         return;
     }
 
@@ -182,26 +186,28 @@ void processEntry(std::unordered_map<std::string, int> &tableau, const std::stri
         tableau[entree] = 1;
     }
 
-    if (tableau.size() == 10) {
+    const int MAX_TABLEAU_SIZE = 3;
+
+    if (tableau.size() == MAX_TABLEAU_SIZE) {
         std::string valeurMax;
         int indexMax = 0;
 
-        for (const auto &pair: tableau) {
+        for (const auto &pair : tableau) {
             if (pair.second > indexMax) {
                 indexMax = pair.second;
                 valeurMax = pair.first;
             }
         }
 
-        LOG4CPLUS_INFO(logger,"Plate is : " << valeurMax << " - Find after : " << number_of_plates_in_table << " plates");
+        LOG4CPLUS_INFO(logger, "Plate is : " << valeurMax << " - Found after : " << number_of_plates_in_table << " plates");
 
         number_of_plates_in_table = 0;
         tableau.clear();
 
-        //Socket mode
-        //send_message_to_socket(message_with_newline.c_str());
+        // Socket mode
+        // send_message_to_socket(message_with_newline.c_str());
 
-        //RS mode
+        // RS mode
         send_message_to_serial_port(valeurMax.c_str());
     }
 }
