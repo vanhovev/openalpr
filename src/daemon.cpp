@@ -147,6 +147,7 @@ void send_message_to_socket(const char *message) {
 
 void send_message_to_serial_port(const char *message) {
     int port = open("/dev/ttyAMA0", O_RDWR | O_NOCTTY);
+    LOG4CPLUS_INFO(logger, " ------------> Message to send : " << message);
 
     if (port == -1) {
         LOG4CPLUS_ERROR(logger, "Error opening serial port.");
@@ -192,8 +193,7 @@ void processEntry(std::unordered_map<std::string, int> &tableau, const std::stri
             }
         }
 
-        LOG4CPLUS_INFO(logger,
-                       "Plate is : " << valeurMax << " - Find after : " << number_of_plates_in_table << " plates");
+        LOG4CPLUS_INFO(logger,"Plate is : " << valeurMax << " - Find after : " << number_of_plates_in_table << " plates");
 
         number_of_plates_in_table = 0;
         tableau.clear();
@@ -409,8 +409,7 @@ void processingThread(void *arg) {
             free(out);
 
             for (int j = 0; j < results.plates.size(); j++) {
-                LOG4CPLUS_DEBUG(logger, "Writing plate " << results.plates[j].bestPlate.characters << " (" << uuid
-                                                         << ") to queue.");
+                LOG4CPLUS_DEBUG(logger, "Plate detected: " << results.plates[j].bestPlate.characters << " - " << results.plates[j].bestPlate.overall_confidence);
                 std::string plate_string(results.plates[j].bestPlate.characters);
                 processEntry(tableau, plate_string);
             }
