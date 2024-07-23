@@ -202,7 +202,7 @@ void processEntry(std::unordered_map<std::string, int> &tableau, const std::stri
             }
         }
 
-        LOG4CPLUS_INFO(logger, "Plate is : " << valeurMax << " - Found after : " << number_of_plates_in_table << "/" << number_of_plates_total " plates");
+        LOG4CPLUS_INFO(logger, "Plate is : " << valeurMax << " - Found after : " << number_of_plates_in_table << "/" << number_of_plates_total << " plates");
 
         number_of_plates_in_table = 0;
         tableau.clear();
