@@ -94,127 +94,9 @@ int new_socket = -1;
 int number_of_plates_total = 0;
 int number_of_plates_in_table = 0;
 
-void init_server_socket() {
-    struct sockaddr_in address;
-    int opt = 1;
-
-    if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) == 0) {
-        perror("socket failed");
-        exit(EXIT_FAILURE);
-    }
-
-    if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, &opt, sizeof(opt))) {
-        perror("setsockopt");
-        exit(EXIT_FAILURE);
-    }
-
-    address.sin_family = AF_INET;
-    address.sin_addr.s_addr = INADDR_ANY;
-    address.sin_port = htons(PORT);
-
-    if (bind(server_fd, (struct sockaddr *) &address, sizeof(address)) < 0) {
-        perror("bind failed");
-        exit(EXIT_FAILURE);
-    }
-
-    if (listen(server_fd, 3) < 0) {
-        perror("listen");
-        exit(EXIT_FAILURE);
-    }
-}
-
-void send_message_to_socket(const char *message) {
-    struct sockaddr_in address;
-    int addrlen = sizeof(address);
-
-    if (server_fd == -1) {
-        init_server_socket();
-    }
-
-    if (new_socket == -1) {
-        if ((new_socket = accept(server_fd, (struct sockaddr *) &address, (socklen_t * ) & addrlen)) < 0) {
-            perror("accept");
-            exit(EXIT_FAILURE);
-        }
-    }
-
-    std::string input = message;
-    std::string transformed_message = input.substr(0, 2) + "-" + input.substr(2, 3) + "-" + input.substr(5, 2);
-
-    ssize_t sent = send(new_socket, transformed_message.c_str(), transformed_message.length(), 0);
-    if (sent == -1) {
-        perror("send failed");
-    }
-}
-
-void send_message_to_serial_port(const char *message) {
-    int port = open("/dev/ttyAMA0", O_RDWR | O_NOCTTY);
-    LOG4CPLUS_INFO(logger, " ------------> Message to send : " << message);
-
-    if (port == -1) {
-        LOG4CPLUS_ERROR(logger, "Error opening serial port.");
-    }
-
-    const char *baud_rate_command = "stty -F /dev/ttyAMA0 9600";
-    system(baud_rate_command);
-
-    std::string input = message;
-    std::string transformed_message =
-            input.substr(0, 2) + "-" + input.substr(2, 3) + "-" + input.substr(5, 2) + "\n\r";
-
-    ssize_t bytes_written = write(port, transformed_message.c_str(), transformed_message.length());
-    if (bytes_written == -1) {
-        LOG4CPLUS_ERROR(logger, "Error writing to serial port.");
-    } else {
-        LOG4CPLUS_INFO(logger, "Message sent to serial port.");
-    }
-}
-
-
-void processEntry(std::unordered_map<std::string, int> &tableau, const std::string &entree) {
-    number_of_plates_total++;
-
-    const std::regex pattern("^[A-Z]{2}[0-9]{3}[A-Z]{2}$");
-
-    if (!std::regex_match(entree, pattern)) {
-        LOG4CPLUS_ERROR(logger, "Plate must be in the format XX000XX.");
-        return;
-    }
-
-    number_of_plates_in_table++;
-
-    if (tableau.find(entree) != tableau.end()) {
-        tableau[entree]++;
-    } else {
-        tableau[entree] = 1;
-    }
-
-    const int MAX_TABLEAU_SIZE = 3;
-
-    if (tableau.size() == MAX_TABLEAU_SIZE) {
-        std::string valeurMax;
-        int indexMax = 0;
-
-        for (const auto &pair : tableau) {
-            if (pair.second > indexMax) {
-                indexMax = pair.second;
-                valeurMax = pair.first;
-            }
-        }
-
-        LOG4CPLUS_INFO(logger, "Plate is : " << valeurMax << " - Found after : " << number_of_plates_in_table << "/" << number_of_plates_total << " plates");
-
-        number_of_plates_in_table = 0;
-        number_of_plates_total = 0;
-        tableau.clear();
-
-        // Socket mode
-        // send_message_to_socket(message_with_newline.c_str());
-
-        // RS mode
-        send_message_to_serial_port(valeurMax.c_str());
-    }
-}
+bool config_data_serial_port;
+bool config_data_socket;
+int config_data_max_tableau_size;
 
 int main(int argc, const char **argv) {
     signal(SIGSEGV, segfault_handler); // install our segfault handler
@@ -239,7 +121,6 @@ int main(int argc, const char **argv) {
                                      cmd, false);
     TCLAP::SwitchArg clockSwitch("", "clock", "Display timing information to log.  Default=off", cmd, false);
 
-    init_server_socket();
     try {
 
         cmd.add(configDirArg);
@@ -314,7 +195,19 @@ int main(int argc, const char **argv) {
         return 1;
     }
 
+    if(daemon_config.socket == 0 && daemon_config.serial_port == 0){
+        LOG4CPLUS_FATAL(logger, "No output defined. Please define either socket or serial port.");
+        return 1;
+    }
+
+    config_data_serial_port = daemon_config.serial_port;
+    config_data_socket = daemon_config.socket;
+    config_data_max_tableau_size = daemon_config.max_tableau_size;
+
     LOG4CPLUS_INFO(logger, "Using: " << daemon_config.imageFolder << " for storing valid plate images");
+    LOG4CPLUS_INFO(logger, "Socket : " << daemon_config.socket);
+    LOG4CPLUS_INFO(logger, "Serial port : " << daemon_config.serial_port);
+    LOG4CPLUS_INFO(logger, "Max tableau size : " << daemon_config.max_tableau_size);
 
     pid_t pid;
 
@@ -338,7 +231,7 @@ int main(int argc, const char **argv) {
             tdata->pattern = daemon_config.pattern;
             tdata->clock_on = clockOn;
 
-            tthread::thread *thread_recognize = new tthread::thread(streamRecognitionThread, (void *) tdata);
+            tthread::thread *thread_recognize = new tthread::thread(streamRecognitionThread, (void *)tdata);
             threads.push_back(thread_recognize);
 
             break;
@@ -353,6 +246,148 @@ int main(int argc, const char **argv) {
         delete threads[i];
 
     return 0;
+}
+
+void init_server_socket()
+{
+    struct sockaddr_in address;
+    int opt = 1;
+
+    if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) == 0)
+    {
+        perror("socket failed");
+        exit(EXIT_FAILURE);
+    }
+
+    if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, &opt, sizeof(opt)))
+    {
+        perror("setsockopt");
+        exit(EXIT_FAILURE);
+    }
+
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = INADDR_ANY;
+    address.sin_port = htons(PORT);
+
+    if (bind(server_fd, (struct sockaddr *)&address, sizeof(address)) < 0)
+    {
+        perror("bind failed");
+        exit(EXIT_FAILURE);
+    }
+
+    if (listen(server_fd, 3) < 0)
+    {
+        perror("listen");
+        exit(EXIT_FAILURE);
+    }
+}
+
+void send_message_to_socket(const char *message)
+{
+    struct sockaddr_in address;
+    int addrlen = sizeof(address);
+
+    if (server_fd == -1)
+    {
+        init_server_socket();
+    }
+
+    if (new_socket == -1)
+    {
+        if ((new_socket = accept(server_fd, (struct sockaddr *)&address, (socklen_t *)&addrlen)) < 0)
+        {
+            perror("accept");
+            exit(EXIT_FAILURE);
+        }
+    }
+
+    std::string input = message;
+    std::string transformed_message = input.substr(0, 2) + "-" + input.substr(2, 3) + "-" + input.substr(5, 2);
+
+    ssize_t sent = send(new_socket, transformed_message.c_str(), transformed_message.length(), 0);
+    if (sent == -1)
+    {
+        perror("send failed");
+    }
+}
+
+void send_message_to_serial_port(const char *message)
+{
+    int port = open("/dev/ttyAMA0", O_RDWR | O_NOCTTY);
+    LOG4CPLUS_INFO(logger, " ------------> Message to send : " << message);
+
+    if (port == -1)
+    {
+        LOG4CPLUS_ERROR(logger, "Error opening serial port.");
+    }
+
+    const char *baud_rate_command = "stty -F /dev/ttyAMA0 9600";
+    system(baud_rate_command);
+
+    std::string input = message;
+    std::string transformed_message =
+            input.substr(0, 2) + "-" + input.substr(2, 3) + "-" + input.substr(5, 2) + "\n\r";
+
+    ssize_t bytes_written = write(port, transformed_message.c_str(), transformed_message.length());
+    if (bytes_written == -1)
+    {
+        LOG4CPLUS_ERROR(logger, "Error writing to serial port.");
+    }
+    else
+    {
+        LOG4CPLUS_INFO(logger, "Message sent to serial port.");
+    }
+}
+
+void processEntry(std::unordered_map<std::string, int> &tableau, const std::string &entree)
+{
+    number_of_plates_total++;
+
+    const std::regex pattern("^[A-Z]{2}[0-9]{3}[A-Z]{2}$");
+
+    if (!std::regex_match(entree, pattern))
+    {
+        LOG4CPLUS_ERROR(logger, "Plate must be in the format XX000XX.");
+        return;
+    }
+
+    number_of_plates_in_table++;
+
+    if (tableau.find(entree) != tableau.end())
+    {
+        tableau[entree]++;
+    }
+    else
+    {
+        tableau[entree] = 1;
+    }
+
+    if (number_of_plates_in_table == config_data_max_tableau_size)
+    {
+        std::string valeurMax;
+        int indexMax = 0;
+
+        for (const auto &pair : tableau)
+        {
+            if (pair.second > indexMax)
+            {
+                indexMax = pair.second;
+                valeurMax = pair.first;
+            }
+        }
+
+        LOG4CPLUS_INFO(logger, "Plate is : " << valeurMax << " - Found after : " << number_of_plates_in_table << "/" << number_of_plates_total << " plates");
+
+        number_of_plates_in_table = 0;
+        number_of_plates_total = 0;
+        tableau.clear();
+
+        if (config_data_socket)
+            send_message_to_socket(valeurMax.c_str());
+
+        if (config_data_serial_port)
+            send_message_to_serial_port(valeurMax.c_str());
+    }
 }
 
 void processingThread(void *arg) {
